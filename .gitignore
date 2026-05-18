@@ -196,6 +196,7 @@ cython_debug/
 *.code-workspace
 test/
 *.txt
+!requirements.txt
 # BookRAG
 /Scripts/eval.sh
 /Scripts/index.sh

@@ -24,7 +24,7 @@ BookRAG targets RAG over long, highly structured documents such as books, manual
 
 - **VLDB 2026**: BookRAG has been accepted to VLDB 2026.
 - **arXiv**: The preprint is available at [arXiv:2512.03413](https://arxiv.org/abs/2512.03413).
-- **Release in progress**: We are preparing the reproducible environment instructions for public use.
+- **Environment**: Installation files are provided through [`requirements.txt`](./requirements.txt) and [`environment.yml`](./environment.yml).
 
 ## Why BookRAG?
 
@@ -73,9 +73,28 @@ Given a user question, BookRAG performs query classification and planning, then 
 
 ## Environment
 
-BookRAG uses [MinerU](https://github.com/opendatalab/MinerU) for PDF parsing and document information extraction. Please install MinerU and its dependencies first if your workflow requires PDF processing.
+BookRAG requires Python 3.12. The recommended setup is to create a fresh conda environment from [`environment.yml`](./environment.yml):
 
-The complete, reproducible environment for the VLDB 2026 experiments is being prepared and will be released with detailed setup instructions.
+```bash
+conda env create -f environment.yml
+conda activate gbc-rag
+```
+
+Alternatively, install the Python dependencies directly:
+
+```bash
+pip install -r requirements.txt
+```
+
+BookRAG uses [MinerU](https://github.com/opendatalab/MinerU) for PDF parsing and document information extraction. The default configuration uses `vlm-sglang-client`, so PDF parsing expects a running MinerU/SGLang service and a valid `mineru.server_url` in the selected YAML config. For graph extraction, the default local NLP model is `en_core_web_sm`, which is included in [`requirements.txt`](./requirements.txt).
+
+To check the installation without running models or parsing documents:
+
+```bash
+python main.py --help
+```
+
+If MinerU prints a warning that `sglang` is not installed, it can be ignored when using the client backend with an external service. Install the local SGLang runtime separately only if you plan to run MinerU's `sglang-engine` backend in the same environment.
 
 ## Quick Start
 
@@ -159,11 +178,6 @@ BookRAG/
 +-- main.py
 `-- README.md
 ```
-
-## Release Plan
-
-We will release reproducible environment instructions for BookRAG.
-
 
 ## Links
 
