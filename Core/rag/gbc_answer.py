@@ -29,6 +29,16 @@ class AnswerAgent:
         self.vlm = vlm
         self.variant = variant
 
+    def answer_with_causal_path(
+        self,
+        query: str,
+        subgraph,
+        entities,
+    ):
+        """HugRAG generation: identify causal path then generate spurious-aware answer."""
+        from Core.rag.hugrag_generator import answer_with_causal_path as _hugrag_gen
+        return _hugrag_gen(query=query, subgraph=subgraph, llm=self.llm)
+
     def _prepare_evidence(
         self, retrieved_nodes: List[Dict]
     ) -> Tuple[List[Dict], List[Dict]]:

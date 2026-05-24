@@ -18,3 +18,6 @@ class GraphConfig:
 
     embedding_config: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     reranker_config: RerankerConfig = field(default_factory=RerankerConfig)
+
+    # HugRAG: run causal edge labeling + cross-module gate building after KG refinement
+    causal_labeling: bool = False

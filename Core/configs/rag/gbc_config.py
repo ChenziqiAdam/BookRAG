@@ -14,7 +14,8 @@ class GBCRAGConfig(BaseRAGStrategyConfig):
 
     strategy: Literal["gbc"] = "gbc"
     variant: Literal[
-        "standard", "wo_plan", "wo_selector", "wo_graph", "wo_text", "wo_er", "wo_map"
+        "standard", "wo_plan", "wo_selector", "wo_graph", "wo_text", "wo_er", "wo_map",
+        "hugrag",
     ] = Field(
         default="standard",
         description="The variant of the GBC RAG strategy to use. Options are 'standard', 'wo_plan', 'wo_selector', 'wo_graph', 'wo_text', 'wo_er', and 'wo_map'.",
@@ -42,6 +43,20 @@ class GBCRAGConfig(BaseRAGStrategyConfig):
     topk_ent: int = Field(
         default=5,
         description="The number of top entities to retrieve from the graph.",
+    )
+
+    # HugRAG-specific parameters
+    causal_boost: float = Field(
+        default=2.0,
+        description="Score multiplier for causal edges during gated BFS expansion.",
+    )
+    gate_boost: float = Field(
+        default=3.0,
+        description="Score multiplier for causal gate edges during gated BFS expansion.",
+    )
+    top_k_module: int = Field(
+        default=3,
+        description="Number of top modules to seed from during module-level seeding.",
     )
 
     max_retry: int = Field(

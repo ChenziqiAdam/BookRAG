@@ -51,6 +51,10 @@ class Relationship(BaseModel):
     source_ids: Set[int] = Field(
         default_factory=set
     )  # Set of source IDs from which this edge is derived
+    # HugRAG causal attributes
+    is_causal: bool = Field(default=False)
+    causal_confidence: float = Field(default=0.0)
+    edge_type: str = Field(default="entity")  # "entity" | "causal_gate"
 
 
 class SetEncoder(json.JSONEncoder):

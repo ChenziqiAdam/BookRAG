@@ -28,6 +28,9 @@ class Retriever:
         topk_ent: int = 20,
         x_percentile: int = 90,
         topk: int = 10,
+        causal_boost: float = 2.0,
+        gate_boost: float = 3.0,
+        top_k_module: int = 3,
     ):
         self.variant = variant
         self.reranker: TextRerankerProvider = reranker
@@ -37,6 +40,10 @@ class Retriever:
         self.topk_ent: int = topk_ent
         self.x_percentile: int = x_percentile
         self.topk: int = topk
+        self.causal_boost: float = causal_boost
+        self.gate_boost: float = gate_boost
+        self.top_k_module: int = top_k_module
+        self.graph_index = None  # set by GBCRAG for hugrag variant
 
     def text_reranker(
         self, subtree_nodes: List[TreeNode], query: str
@@ -182,6 +189,38 @@ class Retriever:
         if len(subtree_nodes) == 0:
             log.info("No subtree nodes available for reranking.")
             return [], []
+
+        if self.variant == "hugrag":
+            log.info("Variant 'hugrag' selected: Using causally gated BFS expansion.")
+            from Core.rag.hugrag_retriever import gated_bfs_expansion, module_level_seeding
+            graph_index = self.graph_index
+            if graph_index is None:
+                log.warning("HugRAG: graph_index not set on Retriever; falling through to standard.")
+            else:
+                # Seed from entity map + module-level seeding
+                entity_seeds = set()
+                for gbc_ents in start_ent_map.values():
+                    for node_name in gbc_ents:
+                        entity_seeds.add(node_name)
+                module_seeds = module_level_seeding(
+                    sub_query, graph_index, self.embedder, top_k_module=self.top_k_module
+                )
+                all_seeds = entity_seeds | module_seeds
+                log.info(
+                    f"HugRAG seeds: {len(entity_seeds)} entity + {len(module_seeds)} module = {len(all_seeds)} total."
+                )
+                sorted_ranked_list, res_entities = gated_bfs_expansion(
+                    seed_node_names=all_seeds,
+                    graph_index=graph_index,
+                    query=sub_query,
+                    embedder=self.embedder,
+                    subtree_nodes=subtree_nodes,
+                    max_nodes=self.topk_ent * 5,
+                    causal_boost=self.causal_boost,
+                    gate_boost=self.gate_boost,
+                )
+                tree_node_ids = [node_id for node_id, _ in sorted_ranked_list[: self.topk]]
+                return tree_node_ids, res_entities
 
         if self.variant == "wo_graph":
             log.info("Variant 'wo_graph' selected: Skipping graph reranker.")

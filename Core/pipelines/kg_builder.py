@@ -196,6 +196,16 @@ def build_knowledge_graph(tree: DocumentTree, cfg: SystemConfig):
 
     kg_refiner.close()
 
+    # HugRAG Phase 1: label causal edges and build cross-module gates
+    if cfg.graph.causal_labeling:
+        log.info("HugRAG: Starting causal edge labeling...")
+        from Core.pipelines.causal_edge_labeler import label_causal_edges
+        from Core.pipelines.causal_gate_builder import build_causal_gates
+        graph_index = label_causal_edges(graph_index, llm)
+        graph_index = build_causal_gates(graph_index, llm)
+        causal_cost = token_tracker.record_stage("causal_labeling")
+        log.info(f"HugRAG causal labeling cost: {causal_cost}")
+
     return graph_index
     # graph_index.save_graph()
 

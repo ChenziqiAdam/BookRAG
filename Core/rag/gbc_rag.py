@@ -93,7 +93,13 @@ class GBCRAG(BaseRAG):
             topk_ent=self.cfg.topk_ent,
             x_percentile=self.cfg.x_percentile,
             topk=self.cfg.topk,
+            causal_boost=getattr(self.cfg, "causal_boost", 2.0),
+            gate_boost=getattr(self.cfg, "gate_boost", 3.0),
+            top_k_module=getattr(self.cfg, "top_k_module", 3),
         )
+        # Give retriever access to the full graph index for HugRAG seeding
+        if self.variant == "hugrag":
+            self.retriever.graph_index = self.gbc_index.GraphIndex
 
     def _get_entity_embed_text(self, entity: QuestionEntity) -> str:
         return f"Name: {entity.entity_name}\nType: {entity.entity_type}"
@@ -433,6 +439,10 @@ class GBCRAG(BaseRAG):
             iter_context.sub_query, subtree_nodes, subgraph, start_ent_map
         )
 
+        # HugRAG: store subgraph for causal path generation
+        if self.variant == "hugrag":
+            iter_context.iteration_subgraph = subgraph
+
         log.info(f"After skyline filtering, select {len(tree_node_ids)} TreeNodes")
 
         Graph_data = self.gbc_index.GraphIndex.get_subgraph_data(res_entities)
@@ -482,11 +492,18 @@ class GBCRAG(BaseRAG):
             current_step = SubStep(sub_query=query, sub_number=1)
             self._retrieve(query, current_step)
 
-            final_answer, partial_answers = self.answer.answer_simple_question(
-                query=query,
-                retrieved_nodes=current_step.retrieval_nodes,
-                entities=current_step.iteration_graph_nodes,
-            )
+            if self.variant == "hugrag" and current_step.iteration_subgraph is not None:
+                final_answer, partial_answers = self.answer.answer_with_causal_path(
+                    query=query,
+                    subgraph=current_step.iteration_subgraph,
+                    entities=current_step.iteration_graph_nodes,
+                )
+            else:
+                final_answer, partial_answers = self.answer.answer_simple_question(
+                    query=query,
+                    retrieved_nodes=current_step.retrieval_nodes,
+                    entities=current_step.iteration_graph_nodes,
+                )
             current_step.partial_answers = partial_answers
             current_step.generated_answer = final_answer
 

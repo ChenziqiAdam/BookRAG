@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any, Tuple, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
 import networkx as nx
@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 
 
 class SubStep(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     sub_query: str
     sub_number: int
     gbc_entity_map: Dict[str, List[str]] = Field(default_factory=dict)
@@ -30,6 +32,9 @@ class SubStep(BaseModel):
     iteration_text_nodes: Union[str | List[Any]] = Field(default_factory=list)
     iteration_image_nodes: Union[str | List[Any]] = Field(default_factory=list)
     iteration_graph_nodes: Union[str | List[Any]] = Field(default_factory=list)
+
+    # HugRAG: holds the retrieved nx.Graph subgraph for causal generation
+    iteration_subgraph: Optional[Any] = Field(default=None, exclude=True)
 
     partial_answers: Union[str | List[Any]] = Field(default_factory=list)
     generated_answer: str = ""
