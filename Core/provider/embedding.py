@@ -10,7 +10,7 @@ import json
 
 from abc import ABC, abstractmethod
 
-from modelscope import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel
 from transformers import AutoModel as transformer_AutoModel
 import ollama
 import openai
@@ -184,6 +184,10 @@ class GmeEmbeddingProvider(BaseEmbedder):
 
         return self._normalize(full_embeddings_tensor)
 
+    def clear_cache(self) -> None:
+        """Alias for close() to free resources."""
+        self.close()
+
     def close(self) -> None:
         """关闭GmeEmbeddingProvider并释放资源。"""
         log.info(f"Closing GmeEmbeddingProvider for model: {self.model_name}...")
@@ -199,6 +203,10 @@ class GmeEmbeddingProvider(BaseEmbedder):
 
             gc.collect()
             log.info("GME model resources released.")
+
+        # Reset singleton so the next instantiation reloads the model
+        self._initialized = False
+        GmeEmbeddingProvider._instance = None
 
         log.info("GmeEmbeddingProvider closed.")
 

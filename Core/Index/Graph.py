@@ -3,7 +3,6 @@ from networkx.readwrite import json_graph
 import os
 from collections import defaultdict
 from typing import Iterable, Union, Set, List
-from numpy import source
 from pydantic import BaseModel, Field
 import json
 

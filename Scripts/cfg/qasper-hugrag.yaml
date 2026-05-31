@@ -1,0 +1,7 @@
+# Dataset config for HugRAG on QASPER
+# dataset_path: path to Qasper.json with real doc_path values (run Scripts/fix_qasper_paths.py first)
+# working_dir: per-doc outputs go here as working_dir/<doc_uuid>/
+
+dataset_path: /mnt/data/ziqi/BookRAG/datasets/Qasper.json
+working_dir: /mnt/data/ziqi/BookRAG/outputs/qasper_hugrag
+dataset_name: qasper

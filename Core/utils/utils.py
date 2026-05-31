@@ -184,7 +184,7 @@ def get_max_output_tokens(
     # 3 for the end token
     # max 0 for negative values
     inptput_token = get_input_tokens(prompt_or_memory)
-    max_output_toekens = max(max_model_token - inptput_token - 3, 0)
+    max_output_toekens = max(max_model_token - inptput_token - 3, 1)
     return max_output_toekens
 
 

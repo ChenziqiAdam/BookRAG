@@ -302,7 +302,6 @@ class GPTVLMController(BaseVLMController):
         completion = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
-            response_format={"type": "json_object"},  # Use modern JSON mode
         )
 
         if completion.usage:
@@ -315,7 +314,13 @@ class GPTVLMController(BaseVLMController):
                 f"Prompt tokens: {completion.usage.prompt_tokens}, Completion tokens: {completion.usage.completion_tokens}"
             )
 
-        return schema.model_validate_json(completion.choices[0].message.content)
+        content = completion.choices[0].message.content
+        # Strip markdown code fences if present
+        import re
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", content)
+        if match:
+            content = match.group(1).strip()
+        return schema.model_validate_json(content)
 
 
 class OllamaVLMController(BaseVLMController):

@@ -388,6 +388,7 @@ class LLM:
         images: Optional[list] = None,
         think_mode: bool = False,
     ) -> dict:
+        from openai import LengthFinishReasonError
         retry = 0
         max_retries = 3
         while retry < max_retries:
@@ -396,6 +397,10 @@ class LLM:
                 if not res:
                     raise ValueError("Empty response from LLM")
                 return res
+            except LengthFinishReasonError as e:
+                # Response hit the model's max token limit; retrying won't help
+                log.error(f"Token length limit reached in get_json_completion, skipping: {e}")
+                return {}
             except Exception as e:
                 print(f"Error getting JSON completion: {e}")
                 retry += 1
@@ -405,8 +410,6 @@ class LLM:
                         "Failed to get JSON completion after multiple retries"
                     )
         logging.error("Max retries reached, returning empty dict.")
-        logging.error(f"Error: {e}")
-        logging.error("Returning empty dict.")
         return {}
 
 

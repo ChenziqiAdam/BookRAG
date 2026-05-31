@@ -215,7 +215,7 @@ def setup_logging(save_path: str, config_to_log: SystemConfig):
 
 def process_resource(base_system_cfg: SystemConfig, args):
     # Ensure the nested models exist before assigning
-    base_system_cfg.mineru.server_url = "http://localhost:30001"
+    base_system_cfg.mineru.server_url = "http://127.0.0.1:30001"
 
     # For Graph construction
     # base_system_cfg.graph.reranker_config.api_base = "http://localhost:8010/v1"
