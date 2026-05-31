@@ -1,8 +1,8 @@
-from utils.eval_score import eval_score, eval_acc_and_f1
-from utils.extract_answer import AnswerExtractor, load_prompt
-from utils.utils import get_all_cost
+from Eval.utils.eval_score import eval_score, eval_acc_and_f1
+from Eval.utils.extract_answer import AnswerExtractor, load_prompt
+from Eval.utils.utils import get_all_cost
 
-from utils.m3doc_eval import list_f1
+from Eval.utils.m3doc_eval import list_f1
 from Core.configs.dataset_config import DatasetConfig
 
 
