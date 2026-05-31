@@ -105,11 +105,23 @@ class GBC:
             DocumentTree.get_save_path(config.save_path)
         )
         
+        g = config.graph.g
+        reranker_model_name = config.graph.reranker_config.model_name
         if config.graph.refine_type == "basic":
             variant = "basic"
+        elif reranker_model_name.lower().startswith("bge"):
+            safe_model_name = reranker_model_name.replace("/", "_").replace(" ", "_")
+            variant = f"{g}_{safe_model_name}"
         else:
-            variant = None
-        
+            embedding_model_name = config.graph.embedding_config.model_name
+            is_default_g = abs(g - 0.6) < 1e-9
+            is_default_qwen_model = embedding_model_name.lower().startswith("qwen")
+            if is_default_g and is_default_qwen_model:
+                variant = None
+            else:
+                safe_model_name = embedding_model_name.replace("/", "_").replace(" ", "_")
+                variant = f"{g}_{safe_model_name}"
+
         graph_index = Graph.load_from_dir(config.save_path, variant=variant)
         GBC = cls(config=config, graph_index=graph_index, TreeIndex=tree_index)
         log.info(f"GBC index loaded from {config.save_path}")
