@@ -154,6 +154,8 @@ def eval_single_res(pred, gold_answer: list):
 
 def eval_single_file(res_path: str, extractor: AnswerExtractor):
     res_file = os.path.join(res_path, "final_results.json")
+    if not os.path.exists(res_file):
+        return []
     with open(res_file, "r", encoding="utf-8") as f:
         res_data = json.load(f)
 
