@@ -1,6 +1,4 @@
 from Core.configs.dataset_config import DatasetConfig, load_dataset_config
-from Eval.utils.m3doc_eval import eval_m3doc
-from Eval.utils.mmlong_eval import eval_mmlong
 from Eval.utils.qasper_eval import eval_qasper
 
 import pandas as pd
@@ -51,10 +49,12 @@ def eval(args):
 
     
     if data_cfg.dataset_name.lower() == "mmlongbench":
+        from Eval.utils.mmlong_eval import eval_mmlong
         eval_mmlong(data_df, data_cfg, args.method, max_workers=args.max_workers)
         print("MMLongBench dataset evaluation completed.")
 
     if data_cfg.dataset_name.lower() == "m3docrag":
+        from Eval.utils.m3doc_eval import eval_m3doc
         eval_m3doc(data_df, data_cfg, args.method, max_workers=args.max_workers)
         print("M3DocRAG dataset evaluation completed.")
 
