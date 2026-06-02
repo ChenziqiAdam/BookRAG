@@ -4,9 +4,9 @@ pdf_path: TODO
 save_path: TODO
 
 llm:
-  model_name: Qwen/Qwen3-8B-AWQ
+  model_name: Qwen3-8B
   api_key: openai
-  api_base: http://localhost:8003/v1
+  api_base: http://10.20.12.23:8000/v1
   backend: openai
   max_tokens: 5000
   temperature: 0.1
@@ -30,7 +30,7 @@ index:
 mineru:
   backend: vlm-sglang-client
   method: vlm
-  server_url: http://localhost:30000
+  server_url: http://127.0.0.1:30001
   lang: en
 
 tree:
@@ -44,17 +44,17 @@ graph:
   max_gleaning: 0
   refine_type: "advanced"
   embedding_config:
-    model_name: Qwen3-Embedding-0.6B
+    model_name: text-embedding-ada-002
     backend: openai
     max_length: 4096
     device: "cuda:2"
-    api_base: "http://localhost:8007/v1"
+    api_base: "http://localhost:9999/v1"
   reranker_config:
-    model_name: Qwen3-Reranker-4B
+    model_name: bge-reranker-v2-m3
     max_length: 4096
     device: "cuda:2"
     backend: vllm
-    api_base: "http://localhost:8011/v1"
+    api_base: "http://localhost:9998/v1"
 
 
 vdb:
@@ -62,8 +62,8 @@ vdb:
   vdb_dir_name: "Tree_vdb"
   collection_name: "TreeVDB"
   embedding_config:
-    model_name: Alibaba-NLP/gme-Qwen2-VL-2B-Instruct
-    device: "cuda:1"
+    model_name: /mnt/data/ziqi/sentence-transformers/gme-Qwen2-VL-2B-Instruct
+    device: "cuda:0"
 
 rag_force_reprocess: True
 
@@ -75,11 +75,11 @@ rag:
   select_depth: 2
   max_retry: 2
   reranker_config:
-    model_name: Qwen3-Reranker-4B
+    model_name: bge-reranker-v2-m3
     max_length: 4096
-    device: "cuda:7"
-    backend: vllm
-    api_base: "http://localhost:8011/v1"
-  mm_reranker_config:
-    model_name: Alibaba-NLP/gme-Qwen2-VL-2B-Instruct
     device: "cuda:2"
+    backend: vllm
+    api_base: "http://localhost:9998/v1"
+  mm_reranker_config:
+    model_name: /mnt/data/ziqi/sentence-transformers/gme-Qwen2-VL-2B-Instruct
+    device: "cuda:0"

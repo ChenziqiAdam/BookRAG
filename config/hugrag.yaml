@@ -8,7 +8,7 @@ llm:
   api_key: openai
   api_base: http://10.20.12.23:8000/v1
   backend: openai
-  max_tokens: 4096
+  max_tokens: 5000
   temperature: 0.1
   frequency_penalty: 0.0
   presence_penalty: 0.0
