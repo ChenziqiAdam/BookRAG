@@ -62,10 +62,10 @@ class Retriever:
             else:
                 text = node.meta_info.content
             if num_tokens(text) > self.reranker.max_length - 1000:
-                text = TextProcessor.split_text_into_chunks(
+                chunks = TextProcessor.split_text_into_chunks(
                     text=text, max_length=self.reranker.max_length - 1000
                 )
-                text = text[0]  # use the first chunk
+                text = chunks[0] if chunks else text[: self.reranker.max_length - 1000]
             doc_text.append(text)
 
         scores = self.reranker.rerank(

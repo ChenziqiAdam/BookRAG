@@ -25,9 +25,14 @@ class CausalPathResult(BaseModel):
 # --- Prompt templates ---
 
 CAUSAL_EDGE_LABELING_PROMPT = """You are given two entities and a relationship extracted from a document.
-Determine whether the relationship represents a CAUSAL relationship
-(A directly causes, leads to, or produces B) or merely ASSOCIATIVE
-(A and B co-occur or are related, but one doesn't cause the other).
+Determine whether the relationship represents a CAUSAL relationship or merely ASSOCIATIVE.
+
+A CAUSAL relationship means A directly causes, leads to, produces, enables, requires, drives,
+results in, or influences B in a mechanistic or functional sense.
+An ASSOCIATIVE relationship means A and B co-occur, are mentioned together, or are related
+without one directly causing the other.
+
+When in doubt, prefer marking the relationship as CAUSAL (is_causal: true) with lower confidence.
 
 Entity A: {entity_a}
 Relation: {relation}
@@ -86,21 +91,24 @@ JSON structure:
 """
 
 CAUSAL_ANSWER_PROMPT = """You are a precise question-answering assistant.
-Answer the query using ONLY the information in the verified causal path.
-Do NOT use information from the spurious nodes listed below.
+Answer the query based on the retrieved knowledge below.
 
 Query: {query}
 
-Verified causal path:
+Primary context (causal path — prefer this):
 {causal_path_text}
 
-Spurious nodes to ignore:
+Additional context (use if the primary context is insufficient):
+{additional_context}
+
+Nodes less likely to be relevant (treat with lower priority):
 {spurious_nodes}
 
 Instructions:
-- Base your answer strictly on the causal path.
-- If the causal path does not contain enough information, say so explicitly.
+- Prefer information from the primary context (causal path).
+- If the primary context is insufficient, draw on the additional context.
 - Keep your answer concise and factual.
+- If none of the context contains the answer, give your best estimate based on what is available.
 
 Answer:
 """

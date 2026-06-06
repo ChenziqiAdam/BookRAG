@@ -46,7 +46,10 @@ def identify_causal_path(
 def build_causal_answer_prompt(
     query: str, causal_result: CausalPathResult, subgraph: nx.Graph
 ) -> str:
-    """Build the final answer prompt grounded only in causal-path nodes."""
+    """Build the final answer prompt grounded in causal-path nodes, with fallback to all nodes."""
+    causal_path_set = set(causal_result.causal_path)
+    spurious_set = set(causal_result.spurious_nodes)
+
     path_lines = []
     for node_name in causal_result.causal_path:
         if node_name in subgraph.nodes:
@@ -56,7 +59,16 @@ def build_causal_answer_prompt(
         else:
             path_lines.append(f"- {node_name}")
 
-    causal_path_text = "\n".join(path_lines) if path_lines else "(empty causal path)"
+    # Additional context: all subgraph nodes not in the causal path and not spurious
+    additional_lines = []
+    for node_name, data in subgraph.nodes(data=True):
+        if node_name not in causal_path_set and node_name not in spurious_set:
+            desc = data.get("description", "")
+            entity_name = data.get("entity_name", node_name)
+            additional_lines.append(f"- {entity_name}: {desc}" if desc else f"- {entity_name}")
+
+    causal_path_text = "\n".join(path_lines) if path_lines else "(no causal path identified — use additional context below)"
+    additional_context = "\n".join(additional_lines) if additional_lines else "(none)"
     spurious_nodes = (
         ", ".join(causal_result.spurious_nodes)
         if causal_result.spurious_nodes
@@ -66,6 +78,7 @@ def build_causal_answer_prompt(
     return CAUSAL_ANSWER_PROMPT.format(
         query=query,
         causal_path_text=causal_path_text,
+        additional_context=additional_context,
         spurious_nodes=spurious_nodes,
     )
 
