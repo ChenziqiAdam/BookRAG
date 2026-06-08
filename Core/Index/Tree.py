@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 import pickle
 import logging
 from enum import Enum
-from typing import Optional, Dict, Literal, Any, List, Set, Union
+from typing import Optional, Dict, Literal, Any, List, Set, Union, Tuple
 import os
 
 log = logging.getLogger(__name__)
@@ -118,6 +118,7 @@ class DocumentTree:
         self.save_dir = cfg.save_path
         self.pdf_id_to_index_id: Dict[int, int] = {}  # Maps pdf_id to index_id
         self.max_depth = -1
+        self.causal_gate_edges: Dict[Tuple[int, int], str] = {}  # (node_id_A, node_id_B) -> direction
 
     def init_root_node(self, meta_dict: dict):
         self.root_node = TreeNode(meta_dict)

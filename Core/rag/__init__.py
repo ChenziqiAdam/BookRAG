@@ -7,13 +7,15 @@ from Core.rag.base_rag import BaseRAG
 # Import the specific strategy config classes and the Union type
 from Core.configs.rag import ALL_STRATEGY_CONFIGS
 from Core.configs.rag.traverse_config import TraverseRAGConfig
-from Core.configs.rag.mm_config import MMConfig 
+from Core.configs.rag.causal_traverse_config import CausalTraverseRAGConfig
+from Core.configs.rag.mm_config import MMConfig
 from Core.configs.rag.gbc_config import GBCRAGConfig
 from Core.configs.rag.graph_config import GraphRAGConfig
 from Core.configs.rag.vanilla_config import VanillaConfig
 from Core.configs.rag.gbc_vanilla_config import GBCVanillaConfig
 
 from Core.rag.traverse_agent import TraverseAgent
+from Core.rag.causal_traverse_agent import CausalTraverseAgent
 from Core.rag.gbc_rag import GBCRAG
 from Core.rag.mm_rag import MMRAG
 from Core.rag.graph_rag import GraphRAG
@@ -46,7 +48,22 @@ def create_rag_agent(
     vlm_client = VLM(vlm_config)
 
     # 2. Use isinstance for type-safe dispatching
-    if isinstance(strategy_config, TraverseRAGConfig):
+    if isinstance(strategy_config, CausalTraverseRAGConfig):
+        tree_index = dependencies.get("tree_index")
+        if not tree_index:
+            raise ValueError("CausalTraverseAgent requires a 'tree_index' in dependencies.")
+        embedder = dependencies.get("embedder")
+        if not embedder:
+            raise ValueError("CausalTraverseAgent requires an 'embedder' in dependencies.")
+        return CausalTraverseAgent(
+            config=strategy_config,
+            llm=llm_client,
+            vlm=vlm_client,
+            embedder=embedder,
+            tree_index=tree_index,
+        )
+
+    elif isinstance(strategy_config, TraverseRAGConfig):
         tree_index = dependencies.get("tree_index")
         if not tree_index:
             raise ValueError("TraverseAgent requires a 'tree_index' in dependencies.")

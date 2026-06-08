@@ -146,6 +146,14 @@ def build_tree_from_pdf(cfg: SystemConfig, reforce: bool = False) -> DocumentTre
         summary_cost = token_tracker.record_stage("tree_node_summary")
         log.info(f"Tree node summary generation cost: {summary_cost}")
 
+    if cfg.tree.causal_gate:
+        from Core.pipelines.tree_causal_gate_builder import build_tree_causal_gates
+        log.info("Building tree causal gates...")
+        tree_index = build_tree_causal_gates(tree_index, llm)
+        token_tracker = TokenTracker.get_instance()
+        gate_cost = token_tracker.record_stage("tree_causal_gate_building")
+        log.info(f"Tree causal gate building cost: {gate_cost}")
+
     # save
     tree_index.save_to_file()
     return tree_index

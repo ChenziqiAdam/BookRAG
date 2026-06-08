@@ -27,6 +27,29 @@ def prepare_rag_dependencies(cfg: SystemConfig) -> Dict[str, Any]:
         log.info(f"Successfully loaded tree index from {tree_index_path}")
         dependencies["tree_index"] = tree_index
 
+    elif strategy_name == "causal_traverse":
+        from Core.Index.Tree import DocumentTree
+        from Core.provider.embedding import TextEmbeddingProvider
+        from Core.configs.embedding_config import EmbeddingConfig
+
+        tree_index_path = DocumentTree.get_save_path(cfg.save_path)
+        tree_index = DocumentTree.load_from_file(tree_index_path)
+        log.info(f"Successfully loaded tree index from {tree_index_path}")
+        dependencies["tree_index"] = tree_index
+
+        embed_cfg: EmbeddingConfig = rag_config.embedding_config
+        if embed_cfg is None:
+            raise ValueError("CausalTraverseAgent requires 'embedding_config' in rag config.")
+        embedder = TextEmbeddingProvider(
+            model_name=embed_cfg.model_name,
+            backend=embed_cfg.backend,
+            device=embed_cfg.device,
+            max_length=embed_cfg.max_length,
+            api_base=embed_cfg.api_base,
+        )
+        log.info(f"Embedder loaded: {embed_cfg.model_name}")
+        dependencies["embedder"] = embedder
+
     elif strategy_name == "gbc":
         from Core.Index.GBCIndex import GBC
 

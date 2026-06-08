@@ -90,6 +90,21 @@ JSON structure:
 }}
 """
 
+TREE_CROSS_SECTION_GATE_PROMPT = """Given two document sections, determine if there is a meaningful CAUSAL link between them — i.e., content in Section A causally influences, explains, or leads to the content in Section B.
+
+Section A summary: {section_a_summary}
+Section B summary: {section_b_summary}
+
+Respond with a single valid JSON object only. No extra text.
+
+JSON structure:
+{{
+  "has_causal_link": true or false,
+  "direction": "A->B" or "B->A" or "bidirectional",
+  "description": "one sentence describing the causal link, or empty string if no link"
+}}
+"""
+
 CAUSAL_ANSWER_PROMPT = """You are a precise question-answering assistant.
 Answer the query based on the retrieved knowledge below.
 

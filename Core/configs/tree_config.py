@@ -5,4 +5,4 @@ class TreeConfig:
     node_keywords: bool = True
     node_summary: bool = False
     use_vlm: bool = False
-    
+    causal_gate: bool = False
