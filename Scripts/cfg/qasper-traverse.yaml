@@ -1,5 +1,5 @@
 # Dataset config for baseline TraverseAgent on QASPER
 
-dataset_path: /Users/adamchen/Desktop/VSCode/BookRAG/datasets/Qasper.json
-working_dir: /Users/adamchen/Desktop/VSCode/BookRAG/outputs/qasper_traverse
+dataset_path: /mnt/data/ziqi/BookRAG/datasets/Qasper.json
+working_dir: /mnt/data/ziqi/BookRAG/outputs/qasper_hugrag
 dataset_name: qasper
