@@ -4,9 +4,9 @@ pdf_path: TODO
 save_path: TODO
 
 llm:
-  model_name: Qwen/Qwen3-8B-AWQ
+  model_name: Qwen3-8B
   api_key: openai
-  api_base: http://10.26.1.21:8003/v1
+  api_base: http://10.20.12.23:8000/v1
   backend: openai
   max_tokens: 5000
   temperature: 0.1
@@ -44,22 +44,25 @@ graph:
   max_gleaning: 0
   refine_type: "advanced"
   embedding_config:
-    model_name: Qwen/Qwen3-Embedding-0.6B
-    backend: local
-    max_length: 8192
-    device: "cuda:5"
+    model_name: text-embedding-ada-002
+    backend: openai
+    max_length: 4096
+    device: "cuda:2"
+    api_base: "http://localhost:9999/v1"
   reranker_config:
-    model_name: Qwen/Qwen3-Reranker-4B
-    max_length: 8192
-    device: "cuda:5"
+    model_name: bge-reranker-v2-m3
+    max_length: 4096
+    device: "cuda:2"
+    backend: vllm
+    api_base: "http://localhost:9998/v1"
 
 vdb:
   mm_embedding: True
-  vdb_path: "Tree_vdb"
+  vdb_dir_name: "Tree_vdb"
   collection_name: "TreeVDB"
   embedding_config:
-    model_name: Alibaba-NLP/gme-Qwen2-VL-2B-Instruct
-    device: "cuda:4"
+    model_name: /mnt/data/ziqi/sentence-transformers/gme-Qwen2-VL-2B-Instruct
+    device: "cuda:0"
     
 rag_force_reprocess: True
 rag:
