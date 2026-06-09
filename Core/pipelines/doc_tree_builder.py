@@ -68,6 +68,16 @@ def build_tree_from_pdf(cfg: SystemConfig, reforce: bool = False) -> DocumentTre
         log.info(f"Loading existing tree index from {tree_index_path}...")
         tree_index = DocumentTree.load_from_file(tree_index_path)
         log.info("Tree index loaded successfully.")
+        # Build causal gates on cached tree if requested but not yet built
+        if cfg.tree.causal_gate and not getattr(tree_index, "causal_gate_edges", None):
+            from Core.pipelines.tree_causal_gate_builder import build_tree_causal_gates
+            llm = LLM(cfg.llm)
+            log.info("Building tree causal gates on cached tree...")
+            tree_index = build_tree_causal_gates(tree_index, llm)
+            token_tracker = TokenTracker.get_instance()
+            gate_cost = token_tracker.record_stage("tree_causal_gate_building")
+            log.info(f"Tree causal gate building cost: {gate_cost}")
+            tree_index.save_to_file()
         return tree_index
     else:
         # Create a new tree index
