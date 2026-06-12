@@ -36,27 +36,58 @@ class CausalTraverseAgent(TraverseAgent):
         self.embedder = embedder
         self.gate_boost: float = config.gate_boost
 
-    def _has_causal_gate(self, node_id: int) -> bool:
-        """Return True if node_id appears in any causal gate edge."""
+    def _get_gate_edges_for_node(self, node_id: int) -> List[dict]:
+        """Return all gate edge dicts where node_id is the destination (incoming causal influence).
+        Handles legacy trees where edge values were plain strings (old format)."""
         edges = getattr(self.tree_index, "causal_gate_edges", {})
-        for a, b in edges:
-            if a == node_id or b == node_id:
-                return True
-        return False
+        result = []
+        for (a, b), edge_data in edges.items():
+            if b == node_id:
+                # Migrate legacy string format to dict
+                if isinstance(edge_data, str):
+                    edge_data = {"direction": edge_data, "description": ""}
+                result.append(edge_data)
+        return result
 
     def _causal_gate_score(self, query: str, node: TreeNode) -> float:
-        """Compute causal gate score for a child node."""
-        summary = node.summary or node.meta_info.content or ""
-        if not summary:
-            semantic = 0.5
-        else:
-            try:
-                raw = self.embedder.compute_texts_sim(query, summary[:500])
-                semantic = (raw + 1) / 2  # normalize [-1,1] -> [0,1]
-            except Exception:
-                semantic = 0.5
+        """
+        Compute query-aware causal gate score for a child node.
 
-        gate_factor = self.gate_boost if self._has_causal_gate(node.index_id) else 1.0
+        Mirrors HugRAG's _node_score: semantic * edge_factor.
+        - semantic = embed_sim(query, node_summary), normalized to [0, 1]
+        - edge_factor is query-aware: for each incoming gate edge, we compute
+          embed_sim(query, edge_description) to measure how relevant the causal
+          rationale is to this query. The final factor scales proportionally with
+          the max edge relevance, from 1.0 (no gate) up to gate_boost (fully relevant gate).
+        """
+        summary = node.summary or node.meta_info.content or ""
+        try:
+            raw = self.embedder.compute_texts_sim(query, summary[:500]) if summary else 0.0
+            semantic = (raw + 1) / 2  # normalize [-1,1] -> [0,1]
+        except Exception:
+            semantic = 0.5
+
+        incoming_edges = self._get_gate_edges_for_node(node.index_id)
+        if not incoming_edges:
+            gate_factor = 1.0
+        else:
+            # Query-aware: score each gate edge's rationale against the query,
+            # then use the max relevance to scale the boost proportionally.
+            max_relevance = 0.0
+            for edge_data in incoming_edges:
+                desc = edge_data.get("description", "")
+                if desc:
+                    try:
+                        rel = self.embedder.compute_texts_sim(query, desc)
+                        rel = (rel + 1) / 2  # normalize to [0, 1]
+                    except Exception:
+                        rel = 0.5
+                else:
+                    rel = 0.5  # no description: assume moderate relevance
+                max_relevance = max(max_relevance, rel)
+            # Scale: gate_factor in [1.0, gate_boost] proportional to relevance
+            gate_factor = 1.0 + (self.gate_boost - 1.0) * max_relevance
+
         return round(semantic * gate_factor, 4)
 
     def _create_navigator_prompt(
@@ -110,8 +141,11 @@ class CausalTraverseAgent(TraverseAgent):
             options_str=options_str,
         )
         causal_note = (
-            "\n**Note**: Each option includes a `causal_gate_score`. "
-            "When two options are similarly relevant, prefer the one with a higher score, "
-            "as it indicates stronger causal connections to other document sections."
-        )
+            "\n**Note**: Each option includes a `causal_gate_score` (range 0–{max_score:.1f}). "
+            "This score combines semantic similarity to your query with a causal relevance signal: "
+            "a score above 1.0 means this section is causally linked to other sections AND that "
+            "causal link is relevant to the current query — i.e., it likely contains prerequisite "
+            "or dependent information needed to fully answer a multi-step question. "
+            "Prefer higher-scored options when content relevance is otherwise similar."
+        ).format(max_score=self.gate_boost)
         return base_prompt + causal_note

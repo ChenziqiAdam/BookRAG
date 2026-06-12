@@ -31,7 +31,7 @@ def build_tree_causal_gates(
       - Skip if V is a descendant of U (hierarchy already covers it)
       - Skip if V's parent already has a causal link to U (transitivity)
 
-    Results are stored in tree_index.causal_gate_edges as {(id_A, id_B): direction}.
+    Results are stored in tree_index.causal_gate_edges as {(id_A, id_B): {"direction": ..., "description": ...}}.
     """
     if not tree_index.root_node:
         log.warning("Tree has no root node; skipping causal gate building.")
@@ -92,7 +92,7 @@ def build_tree_causal_gates(
         def _check_pair(u: TreeNode, v: TreeNode):
             summary_a = u.summary or u.meta_info.content or f"Node {u.index_id}"
             summary_b = v.summary or v.meta_info.content or f"Node {v.index_id}"
-            # Truncate to avoid token limits
+            # Truncate to stay within token limits (mirrors causal_gate_builder.py's 500-char cap)
             summary_a = summary_a[:500]
             summary_b = summary_b[:500]
             prompt = TREE_CROSS_SECTION_GATE_PROMPT.format(
@@ -103,8 +103,18 @@ def build_tree_causal_gates(
                 result: CausalGateResult = llm.get_json_completion(prompt, CausalGateResult)
                 return u, v, result
             except Exception as e:
-                log.warning(f"Gate check failed for nodes ({u.index_id}, {v.index_id}): {e}")
-                return u, v, None
+                # Fallback: retry with aggressively truncated summaries (250 chars) to avoid token limits
+                log.warning(f"Gate check failed for nodes ({u.index_id}, {v.index_id}), retrying with shorter summaries: {e}")
+                try:
+                    prompt_short = TREE_CROSS_SECTION_GATE_PROMPT.format(
+                        section_a_summary=summary_a[:250],
+                        section_b_summary=summary_b[:250],
+                    )
+                    result = llm.get_json_completion(prompt_short, CausalGateResult)
+                    return u, v, result
+                except Exception as e2:
+                    log.warning(f"Gate check failed after retry for nodes ({u.index_id}, {v.index_id}): {e2}")
+                    return u, v, None
 
         edges_added = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -116,14 +126,15 @@ def build_tree_causal_gates(
 
                 u_id, v_id = u.index_id, v.index_id
                 direction = result.direction
+                description = result.description  # store rationale for query-aware scoring
 
                 if direction in ("A->B", "bidirectional"):
-                    gate_edges[(u_id, v_id)] = direction
+                    gate_edges[(u_id, v_id)] = {"direction": direction, "description": description}
                     causally_linked.setdefault(u_id, set()).add(v_id)
                     edges_added += 1
 
                 if direction in ("B->A", "bidirectional"):
-                    gate_edges[(v_id, u_id)] = direction
+                    gate_edges[(v_id, u_id)] = {"direction": direction, "description": description}
                     causally_linked.setdefault(v_id, set()).add(u_id)
                     edges_added += 1
 
