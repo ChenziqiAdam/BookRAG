@@ -4,9 +4,9 @@ pdf_path: TODO
 save_path: TODO
 
 llm:
-  model_name: Qwen3-8B
+  model_name: Qwen/Qwen3-8B-AWQ
   api_key: openai
-  api_base: http://10.20.12.23:8000/v1
+  api_base: http://localhost:8003/v1
   backend: openai
   max_tokens: 5000
   temperature: 0.1
