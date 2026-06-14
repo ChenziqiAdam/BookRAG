@@ -21,11 +21,17 @@ def _get_all_descendant_ids(node: TreeNode) -> Set[int]:
     return result
 
 
+MAX_GATE_DEPTH = 2  # Only build gates at depth 1-2 (top-level and second-level sections).
+# Deeper nodes are too granular: at depth 3+ there can be thousands of cross-branch pairs
+# (seen: 2346 pairs at depth 3 for one doc), generating mostly noise at high cost.
+# HugRAG's graph version only checks cross-module pairs (~5-20 modules), analogous to depth 1-2.
+
+
 def build_tree_causal_gates(
     tree_index: DocumentTree, llm: LLM, max_workers: int = 4
 ) -> DocumentTree:
     """
-    Build causal gate edges between tree nodes at every level (BFS order).
+    Build causal gate edges between tree nodes at depth 1 and 2 only (BFS order).
 
     For each node U at a given depth, we check all other nodes V at the same depth:
       - Skip if V is a descendant of U (hierarchy already covers it)
@@ -44,7 +50,7 @@ def build_tree_causal_gates(
     # for transitivity pruning: causally_linked[a] = set of node ids causally linked to a
     causally_linked: Dict[int, Set[int]] = {}
 
-    max_depth = tree_index.get_max_depth()
+    max_depth = min(tree_index.get_max_depth(), MAX_GATE_DEPTH)
 
     for depth in range(1, max_depth + 1):
         nodes_at_depth = tree_index.get_nodes_at_depth(depth)
@@ -121,7 +127,7 @@ def build_tree_causal_gates(
             futures = [executor.submit(_check_pair, u, v) for u, v in pairs]
             for future in as_completed(futures):
                 u, v, result = future.result()
-                if result is None or not result.has_causal_link:
+                if result is None or isinstance(result, dict) or not result.has_causal_link:
                     continue
 
                 u_id, v_id = u.index_id, v.index_id

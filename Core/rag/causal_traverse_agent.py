@@ -37,12 +37,14 @@ class CausalTraverseAgent(TraverseAgent):
         self.gate_boost: float = config.gate_boost
 
     def _get_gate_edges_for_node(self, node_id: int) -> List[dict]:
-        """Return all gate edge dicts where node_id is the destination (incoming causal influence).
+        """Return all gate edge dicts where node_id is the source (outgoing causal influence).
+        We boost nodes that *cause* downstream content — matching HugRAG's BFS which follows
+        outgoing causal edges from gate nodes.
         Handles legacy trees where edge values were plain strings (old format)."""
         edges = getattr(self.tree_index, "causal_gate_edges", {})
         result = []
         for (a, b), edge_data in edges.items():
-            if b == node_id:
+            if a == node_id:  # node_id is the cause (source), not the effect
                 # Migrate legacy string format to dict
                 if isinstance(edge_data, str):
                     edge_data = {"direction": edge_data, "description": ""}
@@ -53,12 +55,12 @@ class CausalTraverseAgent(TraverseAgent):
         """
         Compute query-aware causal gate score for a child node.
 
-        Mirrors HugRAG's _node_score: semantic * edge_factor.
+        score = semantic + gate_bonus
         - semantic = embed_sim(query, node_summary), normalized to [0, 1]
-        - edge_factor is query-aware: for each incoming gate edge, we compute
-          embed_sim(query, edge_description) to measure how relevant the causal
-          rationale is to this query. The final factor scales proportionally with
-          the max edge relevance, from 1.0 (no gate) up to gate_boost (fully relevant gate).
+        - gate_bonus = 0 if no outgoing gate edges, else (gate_boost - 1.0) * max_relevance,
+          where max_relevance = max embed_sim(query, edge_description) over outgoing edges.
+        Additive form ensures a causally important node is boosted even when
+        its summary has low lexical overlap with the query (avoids zeroing the gate signal).
         """
         summary = node.summary or node.meta_info.content or ""
         try:
@@ -67,14 +69,14 @@ class CausalTraverseAgent(TraverseAgent):
         except Exception:
             semantic = 0.5
 
-        incoming_edges = self._get_gate_edges_for_node(node.index_id)
-        if not incoming_edges:
+        outgoing_edges = self._get_gate_edges_for_node(node.index_id)
+        if not outgoing_edges:
             gate_factor = 1.0
         else:
             # Query-aware: score each gate edge's rationale against the query,
             # then use the max relevance to scale the boost proportionally.
             max_relevance = 0.0
-            for edge_data in incoming_edges:
+            for edge_data in outgoing_edges:
                 desc = edge_data.get("description", "")
                 if desc:
                     try:
@@ -88,7 +90,10 @@ class CausalTraverseAgent(TraverseAgent):
             # Scale: gate_factor in [1.0, gate_boost] proportional to relevance
             gate_factor = 1.0 + (self.gate_boost - 1.0) * max_relevance
 
-        return round(semantic * gate_factor, 4)
+        # Additive: semantic + gate bonus, so a causally important node with low
+        # lexical overlap still gets a meaningful boost (avoids zeroing gate signal).
+        gate_bonus = gate_factor - 1.0  # 0 when no gate, up to (gate_boost - 1.0)
+        return round(semantic + gate_bonus, 4)
 
     def _create_navigator_prompt(
         self, query: str, current_node: TreeNode, child_nodes: List[TreeNode]
@@ -100,17 +105,24 @@ class CausalTraverseAgent(TraverseAgent):
         """
         from Core.Index.Tree import NodeType
 
-        options_list = []
+        # Score all children, then sort descending so the LLM sees the best candidates first.
+        # choice_number is preserved from the original ordering so index → child mapping is stable.
+        scored_children = []
         for i, child in enumerate(child_nodes, 1):
             if not child.summary:
                 continue
+            score = self._causal_gate_score(query, child)
+            scored_children.append((score, i, child))
+        scored_children.sort(key=lambda x: x[0], reverse=True)
 
+        options_list = []
+        for score, orig_idx, child in scored_children:
             meta = child.meta_info
             option_data = {
-                "choice_number": i,
+                "choice_number": orig_idx,
                 "type": child.type.upper() if child.type else "unknown",
                 "summary": child.summary,
-                "causal_gate_score": self._causal_gate_score(query, child),
+                "causal_gate_score": score,
             }
 
             if child.type in [NodeType.TITLE, NodeType.EQUATION] and meta.content:
@@ -134,18 +146,18 @@ class CausalTraverseAgent(TraverseAgent):
 
         current_summary = current_node.summary or "This is the root of the document."
 
-        # Extend the standard prompt with a note about causal_gate_score
+        # Options are pre-sorted by causal_gate_score (highest first).
+        # The note tells the LLM to treat this ordering as the primary signal.
         base_prompt = NAVIGATOR_PROMPT_TEMPLATE.format(
             query=query,
             current_summary=current_summary,
             options_str=options_str,
         )
         causal_note = (
-            "\n**Note**: Each option includes a `causal_gate_score` (range 0–{max_score:.1f}). "
-            "This score combines semantic similarity to your query with a causal relevance signal: "
-            "a score above 1.0 means this section is causally linked to other sections AND that "
-            "causal link is relevant to the current query — i.e., it likely contains prerequisite "
-            "or dependent information needed to fully answer a multi-step question. "
-            "Prefer higher-scored options when content relevance is otherwise similar."
-        ).format(max_score=self.gate_boost)
+            "\n**Note**: The options above are sorted by `causal_gate_score` (highest first). "
+            "This score = semantic relevance to your query + causal gate bonus: sections that "
+            "causally explain or unlock other sections get a bonus proportional to how relevant "
+            "that causal link is to the query. "
+            "All else being equal, prefer the option listed first (highest score)."
+        )
         return base_prompt + causal_note
