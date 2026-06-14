@@ -157,7 +157,6 @@ class CausalTraverseAgent(TraverseAgent):
             "\n**Note**: Each option has a `causal_gate_score`. A higher score means the section "
             "is both semantically relevant to your query AND causally connected to other sections "
             "(i.e., it directly produces or enables content elsewhere in the document). "
-            "If two options differ in `causal_gate_score` by more than 0.05, prefer the higher-scored one. "
-            "Otherwise use your judgment based on content relevance."
+            "Use this score as a tiebreaker when two options seem equally relevant based on content alone."
         )
         return base_prompt + causal_note
