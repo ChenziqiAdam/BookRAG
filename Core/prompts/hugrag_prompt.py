@@ -90,7 +90,19 @@ JSON structure:
 }}
 """
 
-TREE_CROSS_SECTION_GATE_PROMPT = """Given two document sections, determine if there is a meaningful CAUSAL link between them — i.e., content in Section A causally influences, explains, or leads to the content in Section B.
+TREE_CROSS_SECTION_GATE_PROMPT = """Given two document sections, determine if there is a DIRECT CAUSAL link between them.
+
+A causal link means: the content of one section mechanistically causes, produces, requires, or directly enables the content of the other. This is NOT satisfied by mere topical relatedness, co-occurrence, or sequential ordering in a paper.
+
+Examples of TRUE causal links:
+- Section A introduces a method → Section B reports results that are directly produced by that method
+- Section A identifies a problem/limitation → Section B proposes a solution that directly addresses it
+- Section A defines a hypothesis → Section B provides experimental evidence that directly tests it
+
+Examples of FALSE (topically related but not causal):
+- Both sections discuss the same dataset
+- Both sections are about the same general topic
+- Section B appears after Section A in the document
 
 Section A summary: {section_a_summary}
 Section B summary: {section_b_summary}
@@ -101,7 +113,7 @@ JSON structure:
 {{
   "has_causal_link": true or false,
   "direction": "A->B" or "B->A" or "bidirectional",
-  "description": "one sentence describing the causal link, or empty string if no link"
+  "description": "one sentence describing the specific causal mechanism, or empty string if no link"
 }}
 """
 

@@ -154,10 +154,9 @@ class CausalTraverseAgent(TraverseAgent):
             options_str=options_str,
         )
         causal_note = (
-            "\n**Note**: The options above are sorted by `causal_gate_score` (highest first). "
-            "This score = semantic relevance to your query + causal gate bonus: sections that "
-            "causally explain or unlock other sections get a bonus proportional to how relevant "
-            "that causal link is to the query. "
-            "All else being equal, prefer the option listed first (highest score)."
+            "\n**Note**: Each option has a `causal_gate_score`. A higher score means the section "
+            "is both semantically relevant to your query AND causally connected to other sections "
+            "(i.e., it directly produces or enables content elsewhere in the document). "
+            "Use this score as a tiebreaker when two options seem equally relevant based on content alone."
         )
         return base_prompt + causal_note
