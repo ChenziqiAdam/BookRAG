@@ -43,7 +43,7 @@ rag_force_reprocess: True
 rag:
   strategy: causal_traverse
   max_depth: -1
-  gate_boost: 1.8
+  gate_boost: 2.0
   embedding_config:
     model_name: text-embedding-ada-002
     backend: openai
