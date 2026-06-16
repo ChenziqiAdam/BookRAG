@@ -1,7 +1,8 @@
 import logging
+import random
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from Core.Index.Tree import DocumentTree, TreeNode
 from Core.provider.llm import LLM
@@ -21,23 +22,36 @@ def _get_all_descendant_ids(node: TreeNode) -> Set[int]:
     return result
 
 
-MAX_GATE_DEPTH = 2  # Only build gates at depth 1-2 (top-level and second-level sections).
-# Deeper nodes are too granular: at depth 3+ there can be thousands of cross-branch pairs
-# (seen: 2346 pairs at depth 3 for one doc), generating mostly noise at high cost.
-# HugRAG's graph version only checks cross-module pairs (~5-20 modules), analogous to depth 1-2.
+MAX_GATE_DEPTH = 3  # Build gates at depth 1-3. Depth 3 is sampled (see MAX_PAIRS_DEPTH3).
+# Depth 3 can have 2000+ cross-branch pairs — cost prohibitive to check all. Instead we
+# randomly sample up to MAX_PAIRS_DEPTH3 cross-branch pairs, focusing on pairs from
+# *different* depth-1 subtrees to capture inter-section causal links missed at depth 1-2.
+MAX_PAIRS_DEPTH3 = 30  # per document at depth 3
+
+
+def _get_depth1_ancestor(node: TreeNode) -> int:
+    """Walk up the tree to find this node's depth-1 ancestor (child of root). Returns node.index_id if already depth-1."""
+    current = node
+    while current.parent and current.parent.parent:
+        current = current.parent
+    return current.index_id
 
 
 def build_tree_causal_gates(
     tree_index: DocumentTree, llm: LLM, max_workers: int = 4
 ) -> DocumentTree:
     """
-    Build causal gate edges between tree nodes at depth 1 and 2 only (BFS order).
+    Build causal gate edges between tree nodes at depth 1-3 (BFS order).
 
-    For each node U at a given depth, we check all other nodes V at the same depth:
-      - Skip if V is a descendant of U (hierarchy already covers it)
+    Depth 1-2: all valid cross-branch pairs checked.
+    Depth 3: randomly sample up to MAX_PAIRS_DEPTH3 cross-branch pairs (from different
+             depth-1 subtrees) to get deeper coverage without combinatorial explosion.
+
+    For each pair (U, V):
+      - Skip if V is a descendant of U (or vice versa)
       - Skip if V's parent already has a causal link to U (transitivity)
 
-    Results are stored in tree_index.causal_gate_edges as {(id_A, id_B): {"direction": ..., "description": ...}}.
+    Results stored in tree_index.causal_gate_edges as {(id_A, id_B): {"direction": ..., "description": ...}}.
     """
     if not tree_index.root_node:
         log.warning("Tree has no root node; skipping causal gate building.")
@@ -92,6 +106,20 @@ def build_tree_causal_gates(
         if not pairs:
             log.info(f"Depth {depth}: no valid pairs to check.")
             continue
+
+        # Depth 3: sample cross-branch pairs (different depth-1 subtrees) to limit cost.
+        if depth == 3 and len(pairs) > MAX_PAIRS_DEPTH3:
+            cross_branch = [(u, v) for u, v in pairs
+                            if _get_depth1_ancestor(u) != _get_depth1_ancestor(v)]
+            same_branch = [(u, v) for u, v in pairs
+                           if _get_depth1_ancestor(u) == _get_depth1_ancestor(v)]
+            # Prioritise cross-branch; fill remaining slots from same-branch
+            n_cross = min(len(cross_branch), MAX_PAIRS_DEPTH3)
+            n_same = MAX_PAIRS_DEPTH3 - n_cross
+            pairs = random.sample(cross_branch, n_cross) + (
+                random.sample(same_branch, min(n_same, len(same_branch))) if n_same > 0 else []
+            )
+            log.info(f"Depth 3: sampled {len(pairs)} pairs ({n_cross} cross-branch, {len(pairs)-n_cross} same-branch) from {len(cross_branch)+len(same_branch)} total.")
 
         log.info(f"Depth {depth}: checking {len(pairs)} node pairs for causal gates...")
 
