@@ -1,7 +1,7 @@
 import json
 import random
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
 from Core.Index.Tree import DocumentTree, TreeNode
 from Core.provider.llm import LLM
@@ -9,6 +9,7 @@ from Core.provider.vlm import VLM
 from Core.provider.embedding import TextEmbeddingProvider
 from Core.rag.traverse_agent import TraverseAgent
 from Core.prompts.traverseagent_prompt import NAVIGATOR_PROMPT_TEMPLATE, NavigatorDecision
+from Core.prompts.hugrag_prompt import TREE_CAUSAL_PATH_PROMPT, CausalTreePathResult
 from Core.configs.rag.causal_traverse_config import CausalTraverseRAGConfig
 
 log = logging.getLogger(__name__)
@@ -55,12 +56,13 @@ class CausalTraverseAgent(TraverseAgent):
         """
         Compute query-aware causal gate score for a child node.
 
-        score = semantic + gate_bonus
+        score = semantic * gate_factor  (multiplicative, matching HugRAG's _node_score)
         - semantic = embed_sim(query, node_summary), normalized to [0, 1]
-        - gate_bonus = 0 if no outgoing gate edges, else (gate_boost - 1.0) * max_relevance,
+        - gate_factor = 1.0 if no outgoing edges; else 1 + (gate_boost-1) * max_relevance,
           where max_relevance = max embed_sim(query, edge_description) over outgoing edges.
-        Additive form ensures a causally important node is boosted even when
-        its summary has low lexical overlap with the query (avoids zeroing the gate signal).
+        Multiplicative form means gate only amplifies semantically relevant nodes —
+        a semantically irrelevant node (semantic≈0) is not boosted even if causally connected,
+        matching HugRAG's intent that causal gating accelerates relevant paths, not overrides.
         """
         summary = node.summary or node.meta_info.content or ""
         try:
@@ -73,27 +75,22 @@ class CausalTraverseAgent(TraverseAgent):
         if not outgoing_edges:
             gate_factor = 1.0
         else:
-            # Query-aware: score each gate edge's rationale against the query,
-            # then use the max relevance to scale the boost proportionally.
             max_relevance = 0.0
             for edge_data in outgoing_edges:
                 desc = edge_data.get("description", "")
                 if desc:
                     try:
                         rel = self.embedder.compute_texts_sim(query, desc)
-                        rel = (rel + 1) / 2  # normalize to [0, 1]
+                        rel = (rel + 1) / 2
                     except Exception:
                         rel = 0.5
                 else:
-                    rel = 0.5  # no description: assume moderate relevance
+                    rel = 0.5
                 max_relevance = max(max_relevance, rel)
-            # Scale: gate_factor in [1.0, gate_boost] proportional to relevance
             gate_factor = 1.0 + (self.gate_boost - 1.0) * max_relevance
 
-        # Additive: semantic + gate bonus, so a causally important node with low
-        # lexical overlap still gets a meaningful boost (avoids zeroing gate signal).
-        gate_bonus = gate_factor - 1.0  # 0 when no gate, up to (gate_boost - 1.0)
-        return round(semantic + gate_bonus, 4)
+        # Multiplicative: gate only amplifies nodes that are already semantically relevant.
+        return round(semantic * gate_factor, 4)
 
     def _create_navigator_prompt(
         self, query: str, current_node: TreeNode, child_nodes: List[TreeNode]
@@ -154,10 +151,102 @@ class CausalTraverseAgent(TraverseAgent):
             options_str=options_str,
         )
         causal_note = (
-            "\n**Note**: Each option has a `causal_gate_score`. A higher score means the section "
-            "is both semantically relevant to your query AND causally connected to other sections "
-            "(i.e., it directly produces or enables content elsewhere in the document). "
+            "\n**Note**: Each option has a `causal_gate_score` = semantic_relevance × causal_gate_factor. "
+            "A higher score means the section is both semantically relevant to your query AND causally "
+            "connected to other sections (i.e., it directly produces or enables content elsewhere). "
             "If two options differ in `causal_gate_score` by more than 0.05, prefer the higher-scored one. "
             "Otherwise use your judgment based on content relevance."
         )
         return base_prompt + causal_note
+
+    def _identify_causal_path(self, query: str, traversal_path: List[TreeNode]) -> Tuple[List[TreeNode], List[TreeNode]]:
+        """
+        Post-retrieval: ask LLM to identify which nodes in the traversal path are on the
+        causal chain vs. spurious. Returns (causal_nodes, spurious_nodes).
+        Mirrors HugRAG's causal path identification step before answer generation.
+        """
+        if not traversal_path:
+            return [], []
+
+        node_summaries = []
+        for node in traversal_path:
+            summary = node.summary or node.meta_info.content or ""
+            node_summaries.append(f"[Node {node.index_id}]: {summary[:300]}")
+        nodes_text = "\n".join(node_summaries)
+
+        prompt = TREE_CAUSAL_PATH_PROMPT.format(query=query, nodes_text=nodes_text)
+        try:
+            result = self.llm.get_json_completion(prompt=prompt, schema=CausalTreePathResult)
+        except Exception as e:
+            log.warning(f"Causal path identification failed: {e}. Using full path.")
+            return traversal_path, []
+
+        if not result or not isinstance(result, CausalTreePathResult):
+            return traversal_path, []
+
+        causal_ids = set(result.causal_node_ids)
+        spurious_ids = set(result.spurious_node_ids)
+
+        causal_nodes = [n for n in traversal_path if n.index_id in causal_ids]
+        spurious_nodes = [n for n in traversal_path if n.index_id in spurious_ids]
+        # Nodes not classified either way go into causal (safe default)
+        unclassified = [n for n in traversal_path if n.index_id not in causal_ids and n.index_id not in spurious_ids]
+        causal_nodes = causal_nodes + unclassified
+
+        log.info(f"Causal path: {[n.index_id for n in causal_nodes]}, spurious: {[n.index_id for n in spurious_nodes]}")
+        return causal_nodes, spurious_nodes
+
+    def generation(self, query: str, query_output_dir: str) -> Tuple[str, List[Any]]:
+        """
+        Full RAG flow with causal path identification step (mirrors HugRAG two-stage generation).
+        1. Traverse to collect context nodes
+        2. Identify causal vs. spurious nodes among the traversal path
+        3. Generate answer prioritizing causal nodes
+        """
+        from Core.Index.Tree import NodeType
+
+        context_nodes = self._retrieve(query)
+
+        causal_nodes, spurious_nodes = self._identify_causal_path(query, context_nodes)
+
+        # Build context strings separated by causal vs. spurious
+        def _node_to_text(node: TreeNode) -> str:
+            meta = node.meta_info
+            node_type = node.type
+            parts = [f"## Section (Type: {node_type})"]
+            if node_type in [NodeType.TEXT, NodeType.TITLE, NodeType.EQUATION] and meta.content:
+                parts.append(meta.content)
+            elif node_type in [NodeType.TABLE] and meta.content:
+                parts.append(meta.content)
+                if meta.table_body:
+                    parts.append(f"Table:\n{meta.table_body}")
+            elif node_type == NodeType.IMAGE and meta.content:
+                parts.append(meta.content)
+            return "\n".join(parts)
+
+        image_paths = []
+        for node in context_nodes:
+            if node.type == NodeType.IMAGE and node.meta_info.image_path:
+                image_paths.append(node.meta_info.image_path)
+
+        if spurious_nodes:
+            causal_text = "\n\n".join(_node_to_text(n) for n in causal_nodes) or "None"
+            spurious_text = "\n\n".join(f"[Node {n.index_id}]: {n.summary or ''}" for n in spurious_nodes)
+            from Core.prompts.hugrag_prompt import CAUSAL_ANSWER_PROMPT
+            final_prompt = CAUSAL_ANSWER_PROMPT.format(
+                query=query,
+                causal_path_text=causal_text,
+                additional_context="",
+                spurious_nodes=spurious_text,
+            )
+        else:
+            # No spurious nodes identified — fall back to standard augmented prompt
+            final_prompt, image_paths = self._create_augmented_prompt(query, causal_nodes)
+
+        if image_paths and self.vlm:
+            final_answer = self.vlm.generate(prompt_or_memory=final_prompt, images=image_paths)
+        else:
+            final_answer = self.llm.get_completion(prompt=final_prompt)
+
+        retrieval_node_ids = self._save_retrieval_res(context_nodes, query_output_dir)
+        return final_answer, retrieval_node_ids

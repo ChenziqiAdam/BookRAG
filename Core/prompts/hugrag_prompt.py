@@ -22,6 +22,12 @@ class CausalPathResult(BaseModel):
     path_explanation: str = Field(default="")
 
 
+class CausalTreePathResult(BaseModel):
+    causal_node_ids: List[int] = Field(default_factory=list)
+    spurious_node_ids: List[int] = Field(default_factory=list)
+    explanation: str = Field(default="")
+
+
 # --- Prompt templates ---
 
 CAUSAL_EDGE_LABELING_PROMPT = """You are given two entities and a relationship extracted from a document.
@@ -94,20 +100,19 @@ TREE_CROSS_SECTION_GATE_PROMPT = """Given two document sections, determine if th
 
 A causal link means: the content of one section mechanistically causes, produces, requires, or directly enables the content of the other. This is NOT satisfied by mere topical relatedness, co-occurrence, or sequential ordering in a paper.
 
-Be very conservative: only answer true if the causal mechanism is explicit and unambiguous. When in doubt, answer false.
+Be conservative: if you are uncertain, answer false.
 
-Examples of TRUE causal links (all three conditions must hold: direct, explicit, mechanistic):
-- Section A introduces a method → Section B reports results that are directly and exclusively produced by that method
-- Section A identifies a specific problem/limitation → Section B proposes a solution that directly and explicitly addresses that exact problem
-- Section A defines a hypothesis → Section B provides experimental evidence that directly and explicitly tests that hypothesis
+Examples of TRUE causal links:
+- Section A introduces a method → Section B reports results that are directly produced by that method
+- Section A identifies a problem/limitation → Section B proposes a solution that directly addresses it
+- Section A defines a hypothesis → Section B provides experimental evidence that directly tests it
 
 Examples of FALSE (topically related but not causal):
-- Both sections discuss the same dataset, domain, or task
-- Both sections are about the same general topic, background, or related work
+- Both sections discuss the same dataset or domain
+- Both sections are about the same general topic or background
 - Section B appears after Section A in the document
 - Section B cites or references Section A without being produced by it
-- Section A and B share terminology, methods, or entities but neither produces the other
-- Section A provides context or motivation that Section B builds upon loosely
+- Section A and B share terminology but neither produces the other
 
 Section A summary: {section_a_summary}
 Section B summary: {section_b_summary}
@@ -119,6 +124,25 @@ JSON structure:
   "has_causal_link": true or false,
   "direction": "A->B" or "B->A" or "bidirectional",
   "description": "one sentence describing the specific causal mechanism, or empty string if no link"
+}}
+"""
+
+TREE_CAUSAL_PATH_PROMPT = """You are given a user query and a list of document sections retrieved from a paper. Your task is to identify which sections are on the CAUSAL PATH to answering the query, and which are SPURIOUS (co-occurring but not causally necessary for the answer).
+
+A section is on the causal path if it directly contains or causally enables the information needed to answer the query. A section is spurious if it is topically related but does not contribute to or produce the answer.
+
+Query: {query}
+
+Retrieved sections:
+{nodes_text}
+
+Respond with a single valid JSON object only. No extra text.
+
+JSON structure:
+{{
+  "causal_node_ids": [list of integer node IDs on the causal path],
+  "spurious_node_ids": [list of integer node IDs that are spurious],
+  "explanation": "one sentence describing the causal chain"
 }}
 """
 
