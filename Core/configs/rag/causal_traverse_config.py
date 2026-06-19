@@ -14,6 +14,10 @@ class CausalTraverseRAGConfig(BaseRAGStrategyConfig):
         default=3.0,
         description="Multiplier applied to causal-gate-connected nodes during traversal scoring."
     )
+    beam_width: int = Field(
+        default=1,
+        description="Number of branches to explore in parallel at each traversal level. 1=original single-path, 2=beam."
+    )
     embedding_config: Optional[EmbeddingConfig] = Field(
         default=None,
         description="Embedding config for computing causal gate scores."

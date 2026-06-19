@@ -36,6 +36,7 @@ class CausalTraverseAgent(TraverseAgent):
         super().__init__(config=config, llm=llm, vlm=vlm, tree_index=tree_index)
         self.embedder = embedder
         self.gate_boost: float = config.gate_boost
+        self.beam_width: int = getattr(config, "beam_width", 1)
 
     def _get_gate_edges_for_node(self, node_id: int) -> List[dict]:
         """Return all gate edge dicts where node_id is the source (outgoing causal influence).
@@ -195,6 +196,66 @@ class CausalTraverseAgent(TraverseAgent):
 
         log.info(f"Causal path: {[n.index_id for n in causal_nodes]}, spurious: {[n.index_id for n in spurious_nodes]}")
         return causal_nodes, spurious_nodes
+
+    def _retrieve(self, query: str) -> List[TreeNode]:
+        """
+        Beam traversal: at each depth level, maintain up to `beam_width` active frontier nodes.
+        All children of all frontier nodes are scored; the top-K by causal_gate_score advance.
+        All visited nodes are collected (deduplicated by index_id) as the context.
+
+        When beam_width=1, behaviour is identical to the parent TraverseAgent single-path traversal
+        (but uses causal_gate_score for ranking instead of LLM navigation).
+        """
+        if self.beam_width <= 1:
+            # Fall back to original LLM-navigator single-path traversal
+            return super()._retrieve(query)
+
+        if not self.tree_index or not self.tree_index.root_node:
+            return []
+
+        max_depth = self.tree_index.get_max_depth() + 1
+        if self.max_depth != -1:
+            max_depth = min(max_depth, self.max_depth)
+
+        root = self.tree_index.root_node
+        # frontier: current set of nodes to expand
+        frontier: List[TreeNode] = [root]
+        visited_ids: set = set()
+        collected: List[TreeNode] = []
+
+        def _add(node: TreeNode):
+            if node.index_id not in visited_ids:
+                visited_ids.add(node.index_id)
+                collected.append(node)
+
+        _add(root)
+
+        for depth in range(max_depth):
+            # Gather all children of all frontier nodes
+            candidates: List[Tuple[float, TreeNode]] = []
+            for node in frontier:
+                for child in node.children:
+                    if child.index_id in visited_ids:
+                        continue
+                    if not child.summary:
+                        continue
+                    score = self._causal_gate_score(query, child)
+                    candidates.append((score, child))
+
+            if not candidates:
+                break
+
+            # Keep top beam_width candidates by score
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            next_frontier = []
+            for score, child in candidates[:self.beam_width]:
+                _add(child)
+                next_frontier.append(child)
+
+            log.info(f"Beam depth {depth+1}: expanded {len(candidates)} candidates → kept {len(next_frontier)} (beam_width={self.beam_width})")
+            frontier = next_frontier
+
+        return collected
 
     def generation(self, query: str, query_output_dir: str) -> Tuple[str, List[Any]]:
         """
