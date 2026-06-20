@@ -127,9 +127,13 @@ JSON structure:
 }}
 """
 
-TREE_CAUSAL_PATH_PROMPT = """You are given a user query and a list of document sections retrieved from a paper. Your task is to identify which sections are on the CAUSAL PATH to answering the query, and which are SPURIOUS (co-occurring but not causally necessary for the answer).
+TREE_CAUSAL_PATH_PROMPT = """You are given a user query and a list of document sections (with their actual content) retrieved from a paper. Your task is to identify which sections are on the CAUSAL PATH to answering the query, and which are SPURIOUS.
 
-A section is on the causal path if it directly contains or causally enables the information needed to answer the query. A section is spurious if it is topically related but does not contribute to or produce the answer.
+Definitions:
+- CAUSAL PATH: sections that directly contain the answer OR that define/introduce concepts without which the answer cannot be understood or derived.
+- SPURIOUS: sections that are topically related but whose content does not contribute to answering this specific query.
+
+Important: base your judgment on the actual section content, not just topic similarity. A section is spurious if removing it would not affect the quality of the answer.
 
 Query: {query}
 

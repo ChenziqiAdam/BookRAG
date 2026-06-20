@@ -171,9 +171,10 @@ class CausalTraverseAgent(TraverseAgent):
 
         node_summaries = []
         for node in traversal_path:
-            summary = node.summary or node.meta_info.content or ""
-            node_summaries.append(f"[Node {node.index_id}]: {summary[:300]}")
-        nodes_text = "\n".join(node_summaries)
+            # Use full content for accurate causal judgment; fall back to summary if no content.
+            content = node.meta_info.content or node.summary or ""
+            node_summaries.append(f"[Node {node.index_id}]:\n{content[:800]}")
+        nodes_text = "\n\n".join(node_summaries)
 
         prompt = TREE_CAUSAL_PATH_PROMPT.format(query=query, nodes_text=nodes_text)
         try:

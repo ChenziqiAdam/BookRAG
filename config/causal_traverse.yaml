@@ -44,7 +44,7 @@ rag:
   strategy: causal_traverse
   max_depth: -1
   gate_boost: 2.0
-  beam_width: 2
+  beam_width: 1
   embedding_config:
     model_name: text-embedding-ada-002
     backend: openai
