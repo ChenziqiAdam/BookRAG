@@ -45,7 +45,7 @@ rag:
   max_depth: -1
   gate_boost: 2.0
   beam_width: 1
-  reranker_topk: 10
+  reranker_topk: 3
   reranker_config:
     model_name: bge-reranker-v2-m3
     max_length: 4096
