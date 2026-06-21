@@ -31,3 +31,7 @@ class CausalTraverseRAGConfig(BaseRAGStrategyConfig):
         default=10,
         description="Keep top-K nodes after reranking before causal path identification."
     )
+    entity_seed_topk: int = Field(
+        default=3,
+        description="Top-K tree nodes to add via entity seeding (augments traversal results)."
+    )

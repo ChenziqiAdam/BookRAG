@@ -11,7 +11,7 @@ from Core.provider.rerank import TextRerankerProvider
 from Core.rag.traverse_agent import TraverseAgent
 from Core.prompts.traverseagent_prompt import NAVIGATOR_PROMPT_TEMPLATE, NavigatorDecision
 from Core.prompts.hugrag_prompt import TREE_CAUSAL_PATH_PROMPT, CausalTreePathResult
-from Core.prompts.gbc_prompt import TEXT_RERANKER_PROMPT
+from Core.prompts.gbc_prompt import TEXT_RERANKER_PROMPT, QUESTION_EE_PROMPT, QUESTION_ENTITY_TYPES, QuestionEntityExtraction
 from Core.configs.rag.causal_traverse_config import CausalTraverseRAGConfig
 
 log = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ class CausalTraverseAgent(TraverseAgent):
         self.gate_boost: float = config.gate_boost
         self.beam_width: int = getattr(config, "beam_width", 1)
         self.reranker_topk: int = getattr(config, "reranker_topk", 10)
+        self.entity_seed_topk: int = getattr(config, "entity_seed_topk", 3)
         reranker_cfg = getattr(config, "reranker_config", None)
         if reranker_cfg is not None:
             self.reranker = TextRerankerProvider(
@@ -173,6 +174,54 @@ class CausalTraverseAgent(TraverseAgent):
             "Otherwise use your judgment based on content relevance."
         )
         return base_prompt + causal_note
+
+    def _seed_nodes_from_query(self, query: str, existing_ids: set) -> List[TreeNode]:
+        """
+        Entity-based section seeding: extract key terms from query via LLM, then
+        find tree nodes whose summary/content best matches those terms via embedding
+        similarity. Returns up to entity_seed_topk nodes not already in existing_ids.
+        Mirrors BookRAG's entity→section linking step but without requiring a KG/VDB.
+        """
+        if not self.tree_index:
+            return []
+
+        # Extract entities from query
+        prompt = QUESTION_EE_PROMPT.format(
+            entity_types=", ".join(QUESTION_ENTITY_TYPES),
+            input_text=query,
+        )
+        try:
+            result = self.llm.get_json_completion(prompt=prompt, schema=QuestionEntityExtraction)
+            entities = result.entities if result and result.entities else []
+        except Exception as e:
+            log.warning(f"Entity extraction failed: {e}. Skipping seed step.")
+            return []
+
+        if not entities:
+            return []
+
+        # Build a combined query string from entity names
+        entity_query = " ".join(e.entity_name for e in entities)
+        log.info(f"Entity seeding: extracted {len(entities)} entities: {[e.entity_name for e in entities]}")
+
+        # Score all leaf/content nodes by embedding similarity to entity query
+        all_nodes = [n for n in self.tree_index.nodes if n.index_id not in existing_ids]
+        scored = []
+        for node in all_nodes:
+            text = node.summary or node.meta_info.content or ""
+            if not text:
+                continue
+            try:
+                sim = self.embedder.compute_texts_sim(entity_query, text[:500])
+                sim = (sim + 1) / 2
+            except Exception:
+                sim = 0.0
+            scored.append((sim, node))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        seed_nodes = [n for _, n in scored[:self.entity_seed_topk]]
+        log.info(f"Entity seeding: added {len(seed_nodes)} seed nodes (topk={self.entity_seed_topk})")
+        return seed_nodes
 
     def _rerank_nodes(self, query: str, nodes: List[TreeNode]) -> List[TreeNode]:
         """Cross-encoder rerank retrieved nodes, keep top reranker_topk."""
@@ -308,6 +357,12 @@ class CausalTraverseAgent(TraverseAgent):
         from Core.Index.Tree import NodeType
 
         context_nodes = self._retrieve(query)
+
+        # Augment with entity-seeded nodes not already in the traversal path
+        existing_ids = {n.index_id for n in context_nodes}
+        seed_nodes = self._seed_nodes_from_query(query, existing_ids)
+        context_nodes = context_nodes + seed_nodes
+
         context_nodes = self._rerank_nodes(query, context_nodes)
 
         causal_nodes, spurious_nodes = self._identify_causal_path(query, context_nodes)
