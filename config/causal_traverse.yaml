@@ -47,11 +47,11 @@ rag:
   beam_width: 1
   reranker_topk: 10
   reranker_config:
-    model_name: Qwen/Qwen3-Reranker-0.6B
-    max_length: 8192
-    device: cuda:2
+    model_name: bge-reranker-v2-m3
+    max_length: 4096
+    device: "cuda:2"
     backend: vllm
-    api_base: http://localhost:8011/v1
+    api_base: "http://localhost:9998/v1"
   embedding_config:
     model_name: text-embedding-ada-002
     backend: openai
