@@ -45,6 +45,7 @@ rag:
   max_depth: -1
   gate_boost: 2.0
   beam_width: 1
+  use_planning: true
   entity_seed_topk: 3
   reranker_topk: 5
   reranker_config:

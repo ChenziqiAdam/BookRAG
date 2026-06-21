@@ -35,3 +35,7 @@ class CausalTraverseRAGConfig(BaseRAGStrategyConfig):
         default=3,
         description="Top-K tree nodes to add via entity seeding (augments traversal results)."
     )
+    use_planning: bool = Field(
+        default=True,
+        description="Enable query planning: classify simple/complex and decompose complex queries into sub-questions."
+    )

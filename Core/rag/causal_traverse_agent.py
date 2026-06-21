@@ -11,7 +11,15 @@ from Core.provider.rerank import TextRerankerProvider
 from Core.rag.traverse_agent import TraverseAgent
 from Core.prompts.traverseagent_prompt import NAVIGATOR_PROMPT_TEMPLATE, NavigatorDecision
 from Core.prompts.hugrag_prompt import TREE_CAUSAL_PATH_PROMPT, CausalTreePathResult
-from Core.prompts.gbc_prompt import TEXT_RERANKER_PROMPT, QUESTION_EE_PROMPT, QUESTION_ENTITY_TYPES, QuestionEntityExtraction
+from Core.prompts.gbc_prompt import (
+    TEXT_RERANKER_PROMPT,
+    QUESTION_EE_PROMPT,
+    QUESTION_ENTITY_TYPES,
+    QuestionEntityExtraction,
+    SYNTHESIS_SYS_PROMPT,
+    SYNTHESIS_USER_PROMPT,
+)
+from Core.rag.gbc_plan import TaskPlanner, PlanResult
 from Core.configs.rag.causal_traverse_config import CausalTraverseRAGConfig
 
 log = logging.getLogger(__name__)
@@ -41,6 +49,8 @@ class CausalTraverseAgent(TraverseAgent):
         self.beam_width: int = getattr(config, "beam_width", 1)
         self.reranker_topk: int = getattr(config, "reranker_topk", 10)
         self.entity_seed_topk: int = getattr(config, "entity_seed_topk", 3)
+        self.use_planning: bool = getattr(config, "use_planning", True)
+        self.planner = TaskPlanner(llm=self.llm) if self.use_planning else None
         reranker_cfg = getattr(config, "reranker_config", None)
         if reranker_cfg is not None:
             self.reranker = TextRerankerProvider(
@@ -347,18 +357,16 @@ class CausalTraverseAgent(TraverseAgent):
 
         return collected
 
-    def generation(self, query: str, query_output_dir: str) -> Tuple[str, List[Any]]:
+    def _retrieve_and_answer(self, query: str) -> Tuple[str, List[TreeNode]]:
         """
-        Full RAG flow with causal path identification step (mirrors HugRAG two-stage generation).
-        1. Traverse to collect context nodes
-        2. Identify causal vs. spurious nodes among the traversal path
-        3. Generate answer prioritizing causal nodes
+        Core single-query RAG: traverse → entity seed → rerank → causal path ID → generate.
+        Returns (answer_text, context_nodes).
         """
         from Core.Index.Tree import NodeType
+        from Core.prompts.hugrag_prompt import CAUSAL_ANSWER_PROMPT
 
         context_nodes = self._retrieve(query)
 
-        # Augment with entity-seeded nodes not already in the traversal path
         existing_ids = {n.index_id for n in context_nodes}
         seed_nodes = self._seed_nodes_from_query(query, existing_ids)
         context_nodes = context_nodes + seed_nodes
@@ -367,7 +375,6 @@ class CausalTraverseAgent(TraverseAgent):
 
         causal_nodes, spurious_nodes = self._identify_causal_path(query, context_nodes)
 
-        # Build context strings separated by causal vs. spurious
         def _node_to_text(node: TreeNode) -> str:
             meta = node.meta_info
             node_type = node.type
@@ -389,11 +396,8 @@ class CausalTraverseAgent(TraverseAgent):
 
         if spurious_nodes:
             causal_text = "\n\n".join(_node_to_text(n) for n in causal_nodes) or "None"
-            # Pass spurious node full content as additional_context so the LLM
-            # can still draw on it if the causal path is insufficient.
             additional_text = "\n\n".join(_node_to_text(n) for n in spurious_nodes)
             spurious_text = "\n\n".join(f"[Node {n.index_id}]: {n.summary or ''}" for n in spurious_nodes)
-            from Core.prompts.hugrag_prompt import CAUSAL_ANSWER_PROMPT
             final_prompt = CAUSAL_ANSWER_PROMPT.format(
                 query=query,
                 causal_path_text=causal_text,
@@ -401,13 +405,71 @@ class CausalTraverseAgent(TraverseAgent):
                 spurious_nodes=spurious_text,
             )
         else:
-            # No spurious nodes identified — fall back to standard augmented prompt
             final_prompt, image_paths = self._create_augmented_prompt(query, causal_nodes)
 
         if image_paths and self.vlm:
-            final_answer = self.vlm.generate(prompt_or_memory=final_prompt, images=image_paths)
+            answer = self.vlm.generate(prompt_or_memory=final_prompt, images=image_paths)
         else:
-            final_answer = self.llm.get_completion(prompt=final_prompt)
+            answer = self.llm.get_completion(prompt=final_prompt)
 
-        retrieval_node_ids = self._save_retrieval_res(context_nodes, query_output_dir)
+        return answer, context_nodes
+
+    def generation(self, query: str, query_output_dir: str) -> Tuple[str, List[Any]]:
+        """
+        Full RAG flow with optional query planning (V19).
+        - Simple queries: single retrieve-and-answer pass.
+        - Complex queries: decompose into sub-questions, answer each, synthesise.
+        """
+        all_context_nodes: List[TreeNode] = []
+        final_answer = ""
+
+        if self.planner:
+            try:
+                plan: PlanResult = self.planner.analyze(query)
+                log.info(f"Query plan: type={plan.query_type}")
+            except Exception as e:
+                log.warning(f"Planning failed: {e}. Falling back to simple retrieval.")
+                plan = PlanResult(query_type="simple", original_query=query)
+        else:
+            plan = PlanResult(query_type="simple", original_query=query)
+
+        if plan.query_type == "complex" and plan.sub_questions:
+            retrieval_tasks = [sq for sq in plan.sub_questions if sq.type == "retrieval"]
+            synthesis_step = next((sq for sq in plan.sub_questions if sq.type == "synthesis"), None)
+
+            sub_results = []
+            for task in retrieval_tasks:
+                sub_answer, sub_nodes = self._retrieve_and_answer(task.question)
+                sub_results.append({"question": task.question, "answer": sub_answer})
+                for n in sub_nodes:
+                    if n.index_id not in {x.index_id for x in all_context_nodes}:
+                        all_context_nodes.append(n)
+
+            log.info(f"Complex query: {len(retrieval_tasks)} sub-questions answered.")
+
+            # Synthesise final answer from sub-results
+            partial_answers_str = "\n\n".join(
+                f"Q: {r['question']}\nA: {r['answer']}" for r in sub_results
+            )
+            if synthesis_step:
+                partial_answers_str += f"\n\nSynthesis task: {synthesis_step.question}"
+
+            from Core.Common.Memory import Memory
+            from Core.Common.Message import Message
+            synthesis_memory = Memory()
+            synthesis_memory.add(Message(role="system", content=SYNTHESIS_SYS_PROMPT))
+            synthesis_memory.add(Message(role="user", content=SYNTHESIS_USER_PROMPT.format(
+                user_question=query,
+                partial_answers_str=partial_answers_str,
+            )))
+            try:
+                final_answer = self.llm.get_completion(synthesis_memory)
+            except Exception as e:
+                log.error(f"Synthesis failed: {e}. Using last sub-answer.")
+                final_answer = sub_results[-1]["answer"] if sub_results else ""
+        else:
+            # Simple (or fallback): single pass
+            final_answer, all_context_nodes = self._retrieve_and_answer(query)
+
+        retrieval_node_ids = self._save_retrieval_res(all_context_nodes, query_output_dir)
         return final_answer, retrieval_node_ids
