@@ -7,9 +7,11 @@ from Core.Index.Tree import DocumentTree, TreeNode
 from Core.provider.llm import LLM
 from Core.provider.vlm import VLM
 from Core.provider.embedding import TextEmbeddingProvider
+from Core.provider.rerank import TextRerankerProvider
 from Core.rag.traverse_agent import TraverseAgent
 from Core.prompts.traverseagent_prompt import NAVIGATOR_PROMPT_TEMPLATE, NavigatorDecision
 from Core.prompts.hugrag_prompt import TREE_CAUSAL_PATH_PROMPT, CausalTreePathResult
+from Core.prompts.gbc_prompt import TEXT_RERANKER_PROMPT
 from Core.configs.rag.causal_traverse_config import CausalTraverseRAGConfig
 
 log = logging.getLogger(__name__)
@@ -37,6 +39,18 @@ class CausalTraverseAgent(TraverseAgent):
         self.embedder = embedder
         self.gate_boost: float = config.gate_boost
         self.beam_width: int = getattr(config, "beam_width", 1)
+        self.reranker_topk: int = getattr(config, "reranker_topk", 10)
+        reranker_cfg = getattr(config, "reranker_config", None)
+        if reranker_cfg is not None:
+            self.reranker = TextRerankerProvider(
+                model_name=reranker_cfg.model_name,
+                max_length=reranker_cfg.max_length,
+                device=reranker_cfg.device,
+                backend=reranker_cfg.backend,
+                api_base=reranker_cfg.api_base,
+            )
+        else:
+            self.reranker = None
 
     def _get_gate_edges_for_node(self, node_id: int) -> List[dict]:
         """Return all gate edge dicts where node_id is the source (outgoing causal influence).
@@ -160,6 +174,32 @@ class CausalTraverseAgent(TraverseAgent):
         )
         return base_prompt + causal_note
 
+    def _rerank_nodes(self, query: str, nodes: List[TreeNode]) -> List[TreeNode]:
+        """Cross-encoder rerank retrieved nodes, keep top reranker_topk."""
+        if not self.reranker or not nodes:
+            return nodes
+        from Core.Index.Tree import NodeType
+        from Core.utils.table_utils import table2text
+
+        doc_texts = []
+        for node in nodes:
+            if node.type == NodeType.TABLE:
+                text = table2text(node.meta_info.__dict__)
+            else:
+                text = node.meta_info.content or node.summary or ""
+            doc_texts.append(text)
+
+        try:
+            scores = self.reranker.rerank(query=query, documents=doc_texts, instruction=TEXT_RERANKER_PROMPT)
+            self.reranker.clean_cache()
+            ranked = sorted(zip(nodes, scores), key=lambda x: x[1], reverse=True)
+            kept = [n for n, _ in ranked[:self.reranker_topk]]
+            log.info(f"Reranker: {len(nodes)} → {len(kept)} nodes (topk={self.reranker_topk})")
+            return kept
+        except Exception as e:
+            log.warning(f"Reranker failed: {e}. Using all retrieved nodes.")
+            return nodes
+
     def _identify_causal_path(self, query: str, traversal_path: List[TreeNode]) -> Tuple[List[TreeNode], List[TreeNode]]:
         """
         Post-retrieval: ask LLM to identify which nodes in the traversal path are on the
@@ -268,6 +308,7 @@ class CausalTraverseAgent(TraverseAgent):
         from Core.Index.Tree import NodeType
 
         context_nodes = self._retrieve(query)
+        context_nodes = self._rerank_nodes(query, context_nodes)
 
         causal_nodes, spurious_nodes = self._identify_causal_path(query, context_nodes)
 

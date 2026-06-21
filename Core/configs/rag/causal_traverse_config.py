@@ -2,6 +2,7 @@ from pydantic import Field
 from typing import Literal, Optional
 from .base_config import BaseRAGStrategyConfig
 from Core.configs.embedding_config import EmbeddingConfig
+from Core.configs.rerank_config import RerankerConfig
 
 
 class CausalTraverseRAGConfig(BaseRAGStrategyConfig):
@@ -21,4 +22,12 @@ class CausalTraverseRAGConfig(BaseRAGStrategyConfig):
     embedding_config: Optional[EmbeddingConfig] = Field(
         default=None,
         description="Embedding config for computing causal gate scores."
+    )
+    reranker_config: Optional[RerankerConfig] = Field(
+        default=None,
+        description="Reranker config for post-retrieval cross-encoder reranking. None disables reranking."
+    )
+    reranker_topk: int = Field(
+        default=10,
+        description="Keep top-K nodes after reranking before causal path identification."
     )
