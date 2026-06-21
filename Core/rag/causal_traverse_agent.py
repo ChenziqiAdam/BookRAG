@@ -293,12 +293,15 @@ class CausalTraverseAgent(TraverseAgent):
 
         if spurious_nodes:
             causal_text = "\n\n".join(_node_to_text(n) for n in causal_nodes) or "None"
+            # Pass spurious node full content as additional_context so the LLM
+            # can still draw on it if the causal path is insufficient.
+            additional_text = "\n\n".join(_node_to_text(n) for n in spurious_nodes)
             spurious_text = "\n\n".join(f"[Node {n.index_id}]: {n.summary or ''}" for n in spurious_nodes)
             from Core.prompts.hugrag_prompt import CAUSAL_ANSWER_PROMPT
             final_prompt = CAUSAL_ANSWER_PROMPT.format(
                 query=query,
                 causal_path_text=causal_text,
-                additional_context="",
+                additional_context=additional_text,
                 spurious_nodes=spurious_text,
             )
         else:
