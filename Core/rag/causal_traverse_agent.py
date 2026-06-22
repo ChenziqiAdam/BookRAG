@@ -391,8 +391,8 @@ class CausalTraverseAgent(TraverseAgent):
 
         image_paths = []
         for node in context_nodes:
-            if node.type == NodeType.IMAGE and node.meta_info.image_path:
-                image_paths.append(node.meta_info.image_path)
+            if node.type == NodeType.IMAGE and node.meta_info.img_path:
+                image_paths.append(node.meta_info.img_path)
 
         if spurious_nodes:
             causal_text = "\n\n".join(_node_to_text(n) for n in causal_nodes) or "None"
